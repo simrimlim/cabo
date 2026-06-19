@@ -570,17 +570,22 @@ async function aiUsePower(p, card) {
       await flashSeen(t.owner, t.slot); // owner sees their card was looked at
       const seen = known(p, t.owner, t.slot);
       const w = worstKnownSlot(p);
-      const wv = w >= 0 ? known(p, p.id, w).value : 99;
-      if (seen && w >= 0 && seen.value < wv) {
-        swapSlots(p.id, w, t.owner, t.slot);
-        // actor now holds the seen card in slot w, and tracks their old card moved to opp
-        p.mem[p.id][w] = byId(p.id).grid[w].card;
-        log(`${p.name} looks at ${byId(t.owner).name}'s card and swaps for it.`);
-        await showSwap(p.id, w, t.owner, t.slot);
+      const myW = w >= 0 ? w : (ownSlots(p).length ? ownSlots(p)[0] : -1);
+      const myWVal = (myW >= 0 && known(p, p.id, myW)) ? known(p, p.id, myW).value : 5;
+      if (myW < 0) {
+        log(`${p.name} looks at ${byId(t.owner).name}'s card.`); // no card to swap (edge)
+      } else if (seen && seen.value < myWVal) {
+        swapSlots(p.id, myW, t.owner, t.slot);
+        p.mem[p.id][myW] = byId(p.id).grid[myW].card;
+        log(`${p.name} takes ${byId(t.owner).name}'s card with a Queen.`);
+        await showSwap(p.id, myW, t.owner, t.slot);
       } else {
-        log(`${p.name} looks at ${byId(t.owner).name}'s card.`);
+        // a Queen must swap — blind-swap a different opponent card
+        const t2 = randomOppSlot(p, (o, i) => !(o === t.owner && i === t.slot)) || t;
+        swapSlots(p.id, myW, t2.owner, t2.slot);
+        log(`${p.name} blind-swaps a different card with a Queen.`);
+        await showSwap(p.id, myW, t2.owner, t2.slot);
       }
-      render();
     }
   }
   await sleep(250);
@@ -835,23 +840,37 @@ async function humanUsePower(card) {
     render();
     const decision = await new Promise((resolve) => {
       const m = modal(`<h2>${byId(opp.owner).name}'s card</h2><div class="big-card" id="sc"></div>
-        <p>Want this card? Swap it into your hand (they get one of yours in return), or leave everything as it is.</p>
-        <div class="row"><button class="btn" id="sw">Swap it into my hand</button>
-        <button class="btn secondary" id="keep">Don't swap</button></div>`);
+        <p>A Queen always swaps. Take this card into your hand, or swap a <b>different</b> card blind (without seeing it).</p>
+        <div class="row"><button class="btn" id="sw">Take this card</button>
+        <button class="btn secondary" id="blind">Swap a different card (blind)</button></div>`);
       $('#sc').appendChild(cardFaceEl(seen));
-      m.onClick('#sw', () => { m.close(); resolve('swap'); });
-      m.onClick('#keep', () => { m.close(); resolve('keep'); });
+      m.onClick('#sw', () => { m.close(); resolve('take'); });
+      m.onClick('#blind', () => { m.close(); resolve('blind'); });
     });
     G.peekReveal = null;
     render();
-    if (decision === 'swap') {
+    if (decision === 'take') {
       const own = await pickSlot((o, i) => o === 0 && human().grid[i], 'Pick YOUR card to swap for it.');
       const myKnew = known(human(), 0, own.slot);
       swapSlots(0, own.slot, opp.owner, opp.slot);
       human().mem[0][own.slot] = seen;              // you saw it, now you hold it
       if (myKnew) human().mem[opp.owner][opp.slot] = myKnew;
-      log(`You look at ${byId(opp.owner).name}'s card and swap for it.`);
+      log(`You take ${byId(opp.owner).name}'s card with your Queen.`);
       await showSwap(0, own.slot, opp.owner, opp.slot);
+    } else {
+      // you must still swap — blind-swap a DIFFERENT card (no peeking)
+      const hasOther = anySlot((o, i) => o !== 0 && !(o === opp.owner && i === opp.slot));
+      const own = await pickSlot((o, i) => o === 0 && human().grid[i], 'Blind swap: pick YOUR card (no peeking).');
+      const opp2 = await pickSlot(
+        (o, i) => o !== 0 && byId(o).grid[i] && (hasOther ? !(o === opp.owner && i === opp.slot) : true),
+        'Blind swap: pick an opponent card to swap with (no peeking).');
+      const myKnew = known(human(), 0, own.slot);
+      const oppKnew = known(human(), opp2.owner, opp2.slot);
+      swapSlots(0, own.slot, opp2.owner, opp2.slot);
+      if (oppKnew) human().mem[0][own.slot] = oppKnew;
+      if (myKnew) human().mem[opp2.owner][opp2.slot] = myKnew;
+      log(`You blind-swap a different card with your Queen.`);
+      await showSwap(0, own.slot, opp2.owner, opp2.slot);
     }
   }
 }
@@ -986,7 +1005,7 @@ function showInstructions(numPlayers) {
       <p><span class="r-h">Values</span> A = 1 · 2–10 = face · J/Q = 10 · ♠♣ K = 10 · <b>♥♦ K = −1</b> · Joker = 0</p>
       <p><span class="r-h">Memory</span> You get 4 face-down cards and only memorize your two closest — then they flip down. Remember them!</p>
       <p><span class="r-h">Your turn</span> Draw a card, then <b>swap</b> it into your grid (the replaced card is discarded) or <b>discard</b> it.</p>
-      <p><span class="r-h">Powers</span> Only when you draw <i>then discard</i> that card: 7/8 peek your own · 9/10 peek an opponent's · J blind-swap two cards · Q look at an opponent's card, then maybe swap.</p>
+      <p><span class="r-h">Powers</span> Only when you draw <i>then discard</i> that card: 7/8 peek your own · 9/10 peek an opponent's · J blind-swap two cards · Q look at an opponent's card, then swap it in (or blind-swap a different one — a Queen always swaps).</p>
       <p><span class="r-h">Slap</span> When a card hits the discard, click a matching rank in your hand to dump it (your hand shrinks). Wrong rank = a penalty card.</p>
       <p><span class="r-h">CABO</span> Think you're lowest? Call CABO at the end of your turn — everyone else gets one last turn, then the lowest hand wins. But a J/Q swap onto your cards <b>cancels</b> your CABO and play continues!</p>
     </div>
