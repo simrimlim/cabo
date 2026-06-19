@@ -835,9 +835,9 @@ async function humanUsePower(card) {
     render();
     const decision = await new Promise((resolve) => {
       const m = modal(`<h2>${byId(opp.owner).name}'s card</h2><div class="big-card" id="sc"></div>
-        <p>Swap it with one of your cards, or keep things as they are.</p>
-        <div class="row"><button class="btn" id="sw">Swap with mine</button>
-        <button class="btn secondary" id="keep">Keep</button></div>`);
+        <p>Want this card? Swap it into your hand (they get one of yours in return), or leave everything as it is.</p>
+        <div class="row"><button class="btn" id="sw">Swap it into my hand</button>
+        <button class="btn secondary" id="keep">Don't swap</button></div>`);
       $('#sc').appendChild(cardFaceEl(seen));
       m.onClick('#sw', () => { m.close(); resolve('swap'); });
       m.onClick('#keep', () => { m.close(); resolve('keep'); });
